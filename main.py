@@ -78,6 +78,8 @@ def main(args):
     # ema model
     args.ema_dict = copy.deepcopy(diffusion.state_dict())
     if args.local_rank == 0:
+        if not os.path.exists(args.save_dir):
+            os.mkdir(args.save_dir)
         torch.save(
             model.state_dict(),
             os.path.join(
