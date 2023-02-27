@@ -226,3 +226,15 @@ def get_dataset(name, data_dir, metadata):
     else:
         raise ValueError(f"{name} dataset nor supported!")
     return train_set
+
+
+def remove_module(d):
+    return OrderedDict({(k[len("module.") :], v) for (k, v) in d.items()})
+
+
+def fix_legacy_dict(d):
+    keys = list(d.keys())
+    # remove multi-gpu module.
+    if "module." in keys[1]:
+        d = remove_module(d)
+    return d
