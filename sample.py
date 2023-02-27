@@ -27,10 +27,11 @@ import utils
 def main(args):
     args.batch_size = 128
     print(args)
-    args.pretrained_ckpt = 'trained_models/CIFAR10/GraSP/Unet_cifar10-epoch_500_of_500-timesteps_1000-class_condn_False.pt'
+    args.density = 1.0
+    args.pretrained_ckpt = 'trained_models/CIFAR10/dense/Unet_cifar10-epoch_100-timesteps_1000-class_condn_False.pt'
     args.sampling_only = True
-    args.num_sampled_images = 128
-    args.save_dir = 'sampled_images/CIFAR10/GraSP/'
+    args.num_sampled_images = 2048
+    args.save_dir = 'sampled_images/CIFAR10/dense/'
     print(args)
 
     args.device = "cuda:{}".format(args.local_rank)
@@ -38,9 +39,9 @@ def main(args):
     torch.cuda.set_device(args.device)
     torch.manual_seed(args.seed + args.local_rank)
     np.random.seed(args.seed + args.local_rank)
-    model = Unet(dim=64, dim_mults=(1, 2, 2, 2))
+    model = Unet(dim=64)
 
-    diffusion = GaussianDiffusion(model, image_size=32, timesteps=1000, loss_type='l2', sampling_timesteps=250)
+    diffusion = GaussianDiffusion(model, image_size=32, timesteps=1000, loss_type='l2', sampling_timesteps=250).to(args.device)
     optimizer = torch.optim.AdamW(diffusion.parameters(), lr=args.lr)
 
     metadata = get_metadata(args.dataset)
@@ -53,8 +54,8 @@ def main(args):
 
     # pruners
     # snip.SNIP(diffusion=diffusion, keep_ratio=args.density, train_dataloader=train_loader, device=args.device)
-    grasp.GraSP(diffusion=diffusion, keep_ratio=args.density, train_dataloader=train_loader, device=args.device,
-                num_classes=10, samples_per_class=20)
+    # grasp.GraSP(diffusion=diffusion, keep_ratio=args.density, train_dataloader=train_loader, device=args.device,
+    #             num_classes=10, samples_per_class=20)
 
     print(utils.get_model_sparsity(diffusion.model))
     if args.local_rank == 0:
@@ -82,7 +83,7 @@ def main(args):
     if args.pretrained_ckpt:
         print(f"Loading pretrained model from {args.pretrained_ckpt}")
         d = fix_legacy_dict(torch.load(args.pretrained_ckpt, map_location=args.device))
-        dm = model.state_dict()
+        dm = diffusion.state_dict()
         if args.delete_keys:
             for k in args.delete_keys:
                 print(
@@ -90,53 +91,33 @@ def main(args):
                     + f"with shape in model ({dm[k].shape})"
                 )
                 del d[k]
-        model.load_state_dict(d, strict=False)
+        diffusion.load_state_dict(d['model'], strict=False)
         print(
             f"Mismatched keys in ckpt and model: ",
-            set(d.keys()) ^ set(dm.keys()),
+            set(d['model'].keys()) ^ set(dm.keys()),
         )
         print(f"Loaded pretrained model from {args.pretrained_ckpt}")
-        module_list = utils.get_modules(model)
-        for m in module_list:
-            prune.remove(m, 'weight')
         print(f"Density is: {utils.get_model_sparsity(model, verbose=False)}")
 
     # sampling
     if args.sampling_only:
         start = time.time()
-        sampled_images = diffusion.sample(batch_size=4)
-        print(sampled_images)
+        num_batches = args.num_sampled_images // args.batch_size
+        sampled_images = []
+        for _ in range(num_batches):
+            batch_images = diffusion.sample(batch_size=128)
+            batch_images = (127.5 * (batch_images + 1))
+            batch_images = batch_images.type(torch.ByteTensor).clone().detach().cpu()
+            sampled_images.append(batch_images)
+        sampled_images = torch.cat(sampled_images, dim=0)
+        save_dir = os.path.join(args.save_dir, f"epoch_100_{args.arch}_{args.dataset}-{args.sampling_steps}"
+                                               f"-sampling_steps-{len(sampled_images)}_images"
+                                               f"-class_condn_{args.class_cond}.pt")
+        torch.save(sampled_images, save_dir)
 
-        # sampled_images, labels, checkpoints = sample_N_images(
-        #     args.num_sampled_images,
-        #     model,
-        #     diffusion,
-        #     None,
-        #     args.sampling_steps,
-        #     args.batch_size,
-        #     metadata.num_channels,
-        #     metadata.image_size,
-        #     metadata.num_classes,
-        #     args,
-        # )
-        np.savez(
-            os.path.join(
-                args.save_dir,
-                f"epoch_500_{args.arch}_{args.dataset}-{args.sampling_steps}-sampling_steps-{len(sampled_images)}_images-class_condn_{args.class_cond}.npz",
-            ),
-            sampled_images,
-        )
-        # with open(f"./{args.save_dir}/epoch_489_checkpoints.pkl", 'wb') as handle:
-        #     pickle.dump(checkpoints, handle)
-        #
-        # end = t.time()
-        # print(f'sampling {args.num_sampled_images} takes {(end - start) / 60:.2f}min')
+        end = time.time()
+        print(f'sampling {args.num_sampled_images} takes {(end - start) / 60:.2f}min')
         return
-
-
-
-
-
 
 
 if __name__ == '__main__':

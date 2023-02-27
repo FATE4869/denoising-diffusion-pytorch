@@ -39,12 +39,19 @@ def main():
         plt.savefig(f"{images_path }/epoch_{epoch}_checkpoints.png")
         plt.show()
 
-def show_images():
-    images = np.load(f'sampled_images/CIFAR10/GraSP/arr_0.npy')
-    images = images.transpose(0, 2, 3, 1)
-    images = (127.5 * (images + 1)).astype(np.uint8)
-    plt.figure()
-    plt.imshow(images[0])
+def show_images(epoch, num_images=2048, dataset='cifar10'):
+    images = torch.load(f'sampled_images/{dataset}/dense/epoch_{epoch}_Unet_{dataset}-250-sampling_steps-{num_images}_images-class_condn_False.pt')
+    images = images.cpu().numpy().transpose(0, 2, 3, 1)
+    plt.figure(figsize=(10, 8))
+    counter = 1
+    num_col = 4
+    num_row = 3
+    for i in range(num_col):
+        for j in range(num_row):
+            plt.subplot(num_row, num_col, counter)
+            plt.imshow(images[counter-1])
+            counter += 1
+    plt.savefig(f"sampled_images/{dataset}/dense/epoch_{epoch}_images.png")
     plt.show()
 
 def add_channels(data, target_channel):
@@ -55,38 +62,41 @@ def add_channels(data, target_channel):
 
 def fid_score(epoch):
     # dataset = 'mnist'
-    dataset = 'cifar10'
-    metadata = get_metadata(dataset)
-    data_dir = './ dataset /'
-    train_set = get_dataset(dataset, data_dir, metadata)
-    if dataset == 'cifar10':
+    dataset = 'CIFAR10'
+    metadata = get_metadata(dataset.lower())
+    data_dir = './dataset /'
+    train_set = get_dataset(dataset.lower(), data_dir, metadata)
+    if dataset == 'CIFAR10':
         train_data = torch.from_numpy(train_set.data.transpose(0, 3, 1, 2))
-    elif dataset == 'mnist':
+    # elif dataset == 'mnist':
         # num_samples * H * W -> num_samples * 1 * H * W
-        train_data = torch.unsqueeze(train_set.train_data, dim=1)
-        train_data = add_channels(train_data, target_channel=3)
+        # train_data = torch.unsqueeze(train_set.train_data, dim=1)
+        # train_data = add_channels(train_data, target_channel=3)
     print(train_data.shape)
 
     # epoch = 489
-    pr = 'lamp_0.2_per_iteration'
-    if pr == 0:
-        data_load_path = f'sampled_images/{dataset}/dense_model/arr_0_epoch_{epoch}_images_2048.npy'
-    elif isinstance(pr, str):
-        data_load_path = f'sampled_images/{dataset}/{pr}/arr_0_epoch_{epoch}_images_2048.npy'
-    else:
-        data_load_path = f'sampled_images/{dataset}/random_pr_{pr}/arr_0_epoch_{epoch}_images_2048.npy'
-
-    # data_load_path = 'sampled_images/mnist/random_pr_0.5/arr_0_epoch_29_images_1024.npy'
-    generated_data = np.load(data_load_path)
-    print(f'Loading generated data from: {data_load_path}')
-    # num_samples * H * W * C -> num_samples * C * H * W
-    generated_data = torch.tensor(generated_data.transpose(0, 3, 1, 2))
-
-    # num_samples * 1 *H * W -> num_samples * 3 * H * W
-    generated_data = add_channels(generated_data, target_channel=3)
-    # generated_data = torch.cat((generated_data, generated_data, generated_data), dim=1)
+    # pr = 'lamp_0.2_per_iteration'
+    # if pr == 0:
+    data_load_path = f'sampled_images/{dataset}/dense/epoch_500_Unet_cifar10-250-sampling_steps-2048_images-class_condn_False.pt'
+    # elif isinstance(pr, str):
+    #     data_load_path = f'sampled_images/{dataset}/{pr}/arr_0_epoch_{epoch}_images_2048.npy'
+    # else:
+    #     data_load_path = f'sampled_images/{dataset}/random_pr_{pr}/arr_0_epoch_{epoch}_images_2048.npy'
+    #
+    # # data_load_path = 'sampled_images/mnist/random_pr_0.5/arr_0_epoch_29_images_1024.npy'
+    generated_data = torch.load(data_load_path)
     print(generated_data.shape)
-
+    generated_data.transpose(1, 3).transpose(2, 3)
+    print(generated_data.shape)
+    # print(f'Loading generated data from: {data_load_path}')
+    # # num_samples * H * W * C -> num_samples * C * H * W
+    # generated_data = torch.tensor(generated_data.transpose(0, 3, 1, 2))
+    #
+    # # num_samples * 1 *H * W -> num_samples * 3 * H * W
+    # generated_data = add_channels(generated_data, target_channel=3)
+    # # generated_data = torch.cat((generated_data, generated_data, generated_data), dim=1)
+    # print(generated_data.shape)
+    #
     fid = FrechetInceptionDistance(feature=64)
     fid.update(train_data[:2048], real=True)
     fid.update(generated_data, real=False)
@@ -188,7 +198,7 @@ def prune_param():
 
 if __name__ == '__main__':
     # main()
-    show_images()
+    show_images(epoch=500)
     # epochs = [499]
     # for epoch in epochs:
     #     fid_score(epoch)
