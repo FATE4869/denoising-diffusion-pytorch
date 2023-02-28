@@ -22,6 +22,7 @@ import time
 # import pickle
 import pruner.snip as snip
 import pruner.grasp as grasp
+import pruner.random_pruning as random_pruning
 import utils
 
 def main(args):
@@ -48,14 +49,15 @@ def main(args):
 
     if args.density < 1.0:
         # pruners
-        snip.SNIP(diffusion=diffusion, keep_ratio=args.density, train_dataloader=train_loader, device=args.device)
+        random_pruning.Random_pruning(diffusion=diffusion, keep_ratio=args.density, device=args.device)
+        # snip.SNIP(diffusion=diffusion, keep_ratio=args.density, train_dataloader=train_loader, device=args.device)
         # grasp.GraSP(diffusion=diffusion, keep_ratio=args.density, train_dataloader=train_loader, device=args.device,
         #             num_classes=10, samples_per_class=20)
         print(f'The sparsity after pruning is:{utils.get_model_sparsity(diffusion)}')
 
     if args.local_rank == 0:
         print(f"Training dataset loaded: Number of batches: {len(train_loader)}, Number of images: {len(train_set)}")
-
+    return 0
     current_epoch = 0
     if args.pretrained_ckpt:
         print(f"Loading pretrained model from {args.pretrained_ckpt}")
