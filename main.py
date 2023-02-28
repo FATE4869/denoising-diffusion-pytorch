@@ -31,17 +31,20 @@ def main(args):
     torch.manual_seed(args.seed + args.local_rank)
     np.random.seed(args.seed + args.local_rank)
 
-    model = Unet(dim=64)
-    diffusion = GaussianDiffusion(model, image_size=32, timesteps=1000, loss_type='l2', sampling_timesteps=250).to(args.device)
+    model = Unet(dim=64, dim_mults=[1, 2, 2, 2],
+                 is_attns=[False, False, False, True])
+    diffusion = GaussianDiffusion(model, image_size=32, timesteps=1000, loss_type='l2', sampling_timesteps=250,
+                                  beta_schedule='linear').to(args.device)
+
     if args.local_rank == 0:
         print(f'The total number of parameter: {utils.count_total_parameters(diffusion)}')
         print(f'The sparsity is:{utils.get_model_sparsity(diffusion)}')
-    optimizer = torch.optim.AdamW(diffusion.parameters(), lr=args.lr)
+    optimizer = torch.optim.Adam(diffusion.parameters(), lr=args.lr)
 
     metadata = get_metadata(args.dataset)
     train_set = get_dataset(name=args.dataset, data_dir=args.data_dir, metadata=metadata)
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False, sampler=None, num_workers=2,
-                              pin_memory=True)  # train_loader for pruning only
+                              pin_memory=True)
 
     if args.density < 1.0:
         # pruners
@@ -49,6 +52,7 @@ def main(args):
         # grasp.GraSP(diffusion=diffusion, keep_ratio=args.density, train_dataloader=train_loader, device=args.device,
         #             num_classes=10, samples_per_class=20)
         print(f'The sparsity after pruning is:{utils.get_model_sparsity(diffusion)}')
+
     if args.local_rank == 0:
         print(f"Training dataset loaded: Number of batches: {len(train_loader)}, Number of images: {len(train_set)}")
 
@@ -68,7 +72,6 @@ def main(args):
         current_epoch = d['epoch']
         diffusion.load_state_dict(d['model'], strict=False)
         optimizer.load_state_dict(d['opt'])
-        # args.ema_dict = copy.deepcopy(diffusion.state_dict())
         args.ema_dict = d['ema']
         print(
             f"Mismatched keys in ckpt and model: ",
@@ -76,7 +79,6 @@ def main(args):
         )
         print(f"Loaded pretrained model from {args.pretrained_ckpt}")
         print(f"Density is: {utils.get_model_sparsity(model, verbose=False)}")
-
 
     ngpus = torch.cuda.device_count()
     if ngpus > 1:
@@ -106,6 +108,7 @@ def main(args):
             'model': diffusion.module.state_dict(),
             'opt': optimizer.state_dict(),
             'ema': args.ema_dict,
+            'logger': logger
         }
         torch.save(result, os.path.join(args.save_dir,
                                         f"{args.arch}_{args.dataset}-epoch_{current_epoch}-timesteps_"
@@ -118,13 +121,14 @@ def main(args):
             sampler.set_epoch(epoch)
         train_one_epoch(diffusion, train_loader, optimizer, logger, None, args)
         current_epoch += 1
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % 1 == 0:
             if args.local_rank == 0:
                 result = {
                     'epoch': current_epoch,
                     'model': diffusion.module.state_dict(),
                     'opt': optimizer.state_dict(),
                     'ema': args.ema_dict,
+                    'logger': logger
                 }
                 torch.save(result, os.path.join(args.save_dir, f"{args.arch}_{args.dataset}-epoch_{current_epoch}-timesteps_"
                                    f"{args.diffusion_steps}-class_condn_{args.class_cond}.pt"))
@@ -173,7 +177,7 @@ if __name__ == '__main__':
     parser.add_argument(
         "--batch-size", type=int, default=128, help="batch-size per gpu"
     )
-    parser.add_argument("--lr", type=float, default=0.0001)
+    parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--ema_w", type=float, default=0.9995)
     # sampling/finetuning

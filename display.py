@@ -42,7 +42,7 @@ def main():
 def show_images(epoch, num_images=2048, dataset='cifar10'):
     images = torch.load(f'sampled_images/{dataset}/dense/epoch_{epoch}_Unet_{dataset}-250-sampling_steps-{num_images}_images-class_condn_False.pt')
     images = images.cpu().numpy().transpose(0, 2, 3, 1)
-    plt.figure(figsize=(10, 8))
+    fig = plt.figure(figsize=(10, 8))
     counter = 1
     num_col = 4
     num_row = 3
@@ -50,9 +50,12 @@ def show_images(epoch, num_images=2048, dataset='cifar10'):
         for j in range(num_row):
             plt.subplot(num_row, num_col, counter)
             plt.imshow(images[counter-1])
+            plt.axis('off')
             counter += 1
+    # plt.title('Scores by group and gender')
+    fig.suptitle(f'generated images at epoch {epoch}')
     plt.savefig(f"sampled_images/{dataset}/dense/epoch_{epoch}_images.png")
-    plt.show()
+    # plt.show()
 
 def add_channels(data, target_channel):
     org_data = data
@@ -62,22 +65,22 @@ def add_channels(data, target_channel):
 
 def fid_score(epoch):
     # dataset = 'mnist'
-    dataset = 'CIFAR10'
-    metadata = get_metadata(dataset.lower())
+    dataset = 'cifar10'
+    metadata = get_metadata(dataset)
     data_dir = './dataset /'
-    train_set = get_dataset(dataset.lower(), data_dir, metadata)
-    if dataset == 'CIFAR10':
+    train_set = get_dataset(dataset, data_dir, metadata)
+    if dataset == 'cifar10':
         train_data = torch.from_numpy(train_set.data.transpose(0, 3, 1, 2))
     # elif dataset == 'mnist':
         # num_samples * H * W -> num_samples * 1 * H * W
         # train_data = torch.unsqueeze(train_set.train_data, dim=1)
         # train_data = add_channels(train_data, target_channel=3)
-    print(train_data.shape)
+    # print(train_data.shape)
 
     # epoch = 489
     # pr = 'lamp_0.2_per_iteration'
     # if pr == 0:
-    data_load_path = f'sampled_images/{dataset}/dense/epoch_500_Unet_cifar10-250-sampling_steps-2048_images-class_condn_False.pt'
+    data_load_path = f'sampled_images/{dataset}/dense/epoch_{epoch}_Unet_cifar10-250-sampling_steps-2048_images-class_condn_False.pt'
     # elif isinstance(pr, str):
     #     data_load_path = f'sampled_images/{dataset}/{pr}/arr_0_epoch_{epoch}_images_2048.npy'
     # else:
@@ -85,10 +88,10 @@ def fid_score(epoch):
     #
     # # data_load_path = 'sampled_images/mnist/random_pr_0.5/arr_0_epoch_29_images_1024.npy'
     generated_data = torch.load(data_load_path)
-    print(generated_data.shape)
-    generated_data.transpose(1, 3).transpose(2, 3)
-    print(generated_data.shape)
-    # print(f'Loading generated data from: {data_load_path}')
+    # print(generated_data.shape)
+    # generated_data.transpose(1, 3).transpose(2, 3)
+    # print(generated_data.shape)
+    print(f'Loading generated data from: {data_load_path}')
     # # num_samples * H * W * C -> num_samples * C * H * W
     # generated_data = torch.tensor(generated_data.transpose(0, 3, 1, 2))
     #
@@ -100,7 +103,7 @@ def fid_score(epoch):
     fid = FrechetInceptionDistance(feature=64)
     fid.update(train_data[:2048], real=True)
     fid.update(generated_data, real=False)
-    print(f'FID score: {fid.compute():.2f}')
+    print(f'FID score at epoch {epoch}: {fid.compute():.2f}')
 
 
 def param_sum():
@@ -196,11 +199,28 @@ def prune_param():
     print(sums)
     print(count)
 
+
+def fid_plot():
+    epochs = np.arange(0, 501, 10)
+    print(epochs)
+    fids = [8, 7.85, 5.71, 6.33, 4.24, 5.73, 6.56, 4.73, 4.51, 9.73, # 000 - 090
+            7.10, 7.14, 4.55, 3.96, 5.23, 5.72, 4.44, 4.06, 6.02, 5.83, # 100 - 190
+            5.50, 7.50, 4.83, 4.43, 8.75, 5.32, 5.28, 8.43, 6.89, 6.86, # 200 - 290
+            5.11, 4.07, 5.52, 4.95, 5.20, 5.21, 8.16, 6.34, 7.27, 5.39, # 300 - 390
+            4.07, 6.84, 5.47, 5.84, 4.56, 4.55, 7.12, 6.90, 4.59, 4.64, # 400 - 490
+            6.39]                                                       # 500
+    plt.figure()
+    plt.plot(epochs, fids)
+    plt.show()
 if __name__ == '__main__':
     # main()
-    show_images(epoch=500)
-    # epochs = [499]
+    # epochs = [110, 120, 130, 140]
+    # epochs = [150, 160, 170, 180, 190]
     # for epoch in epochs:
-    #     fid_score(epoch)
+    #     show_images(epoch=epoch)
+
+    # for epoch in epochs:
+    #     fid_score(epoch=epoch)
     # param_sum()
     # prune_param()
+    fid_plot()

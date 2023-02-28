@@ -28,10 +28,10 @@ def main(args):
     args.batch_size = 128
     print(args)
     args.density = 1.0
-    args.pretrained_ckpt = 'trained_models/CIFAR10/dense/Unet_cifar10-epoch_100-timesteps_1000-class_condn_False.pt'
+    args.pretrained_ckpt = f'trained_models/CIFAR10/dense/Unet_cifar10-epoch_{args.epoch}-timesteps_1000-class_condn_False.pt'
     args.sampling_only = True
     args.num_sampled_images = 2048
-    args.save_dir = 'sampled_images/CIFAR10/dense/'
+    args.save_dir = 'sampled_images/cifar10/dense/'
     print(args)
 
     args.device = "cuda:{}".format(args.local_rank)
@@ -110,7 +110,7 @@ def main(args):
             batch_images = batch_images.type(torch.ByteTensor).clone().detach().cpu()
             sampled_images.append(batch_images)
         sampled_images = torch.cat(sampled_images, dim=0)
-        save_dir = os.path.join(args.save_dir, f"epoch_100_{args.arch}_{args.dataset}-{args.sampling_steps}"
+        save_dir = os.path.join(args.save_dir, f"epoch_{args.epoch}_{args.arch}_{args.dataset}-{args.sampling_steps}"
                                                f"-sampling_steps-{len(sampled_images)}_images"
                                                f"-class_condn_{args.class_cond}.pt")
         torch.save(sampled_images, save_dir)
@@ -183,5 +183,8 @@ if __name__ == '__main__':
     parser.add_argument("--local_rank", default=0, type=int)
     parser.add_argument("--seed", default=112233, type=int)
     args = parser.parse_args()
-
-    main(args)
+    # epochs = [10, 20, 30, 40]
+    epochs = [50, 60, 70, 80]
+    for epoch in epochs:
+        args.epoch = epoch
+        main(args)
