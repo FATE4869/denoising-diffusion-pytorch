@@ -1,9 +1,10 @@
 import torch
 import argparse
-from denoising_diffusion_pytorch import Unet, GaussianDiffusion, train_one_epoch
+from denoising_diffusion_pytorch.ddpm import Unet, GaussianDiffusion, train_one_epoch
 from torch.utils.data import DataLoader
 from data import get_metadata, get_dataset, fix_legacy_dict
 import numpy as np
+from utils import count_total_parameters
 import torch.nn.utils.prune as prune
 
 from torch.utils.data.distributed import DistributedSampler
@@ -25,10 +26,11 @@ import pruner.grasp as grasp
 import utils
 
 def main(args):
-    args.batch_size = 128
+    args.batch_size = 256
     print(args)
     args.density = 1.0
-    args.pretrained_ckpt = f'trained_models/CIFAR10/dense/Unet_cifar10-epoch_{args.epoch}-timesteps_1000-class_condn_False.pt'
+    args.pretrained_ckpt = f'trained_models/epoch_480.pt'
+    # args.pretrained_ckpt = f'trained_models/Unet_cifar10-epoch_{args.epoch}-timesteps_1000-class_condn_False.pt'
     args.sampling_only = True
     args.num_sampled_images = 2048
     args.save_dir = 'sampled_images/cifar10/dense/'
@@ -39,9 +41,11 @@ def main(args):
     torch.cuda.set_device(args.device)
     torch.manual_seed(args.seed + args.local_rank)
     np.random.seed(args.seed + args.local_rank)
-    model = Unet(dim=64)
-
-    diffusion = GaussianDiffusion(model, image_size=32, timesteps=1000, loss_type='l2', sampling_timesteps=250).to(args.device)
+    model = Unet(dim=128, dim_mults=[1, 2, 1, 1], is_attns=[False, True, False, False], channels=3,
+            self_condition=False, num_res_blocks=2, resnet_block_groups=32)
+    print(f'num of param: {count_total_parameters(model) / (10 ** 6)}M')
+    diffusion = GaussianDiffusion(model, image_size=32, timesteps=1000, loss_type='l2', sampling_timesteps=args.sampling_steps,
+                                  beta_schedule='linear').to(args.device)
     optimizer = torch.optim.AdamW(diffusion.parameters(), lr=args.lr)
 
     metadata = get_metadata(args.dataset)
@@ -51,15 +55,6 @@ def main(args):
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False, sampler=None, num_workers=2,
                               pin_memory=True)  # train_loader for pruning only
     print(utils.get_model_sparsity(diffusion.model))
-
-    # pruners
-    # snip.SNIP(diffusion=diffusion, keep_ratio=args.density, train_dataloader=train_loader, device=args.device)
-    # grasp.GraSP(diffusion=diffusion, keep_ratio=args.density, train_dataloader=train_loader, device=args.device,
-    #             num_classes=10, samples_per_class=20)
-
-    print(utils.get_model_sparsity(diffusion.model))
-    if args.local_rank == 0:
-        print(f"Training dataset loaded: Number of batches: {len(train_loader)}, Number of images: {len(train_set)}")
 
     ngpus = 1
 
@@ -91,7 +86,7 @@ def main(args):
                     + f"with shape in model ({dm[k].shape})"
                 )
                 del d[k]
-        diffusion.load_state_dict(d['model'], strict=False)
+        diffusion.load_state_dict(d['ema'])#, strict=False)
         print(
             f"Mismatched keys in ckpt and model: ",
             set(d['model'].keys()) ^ set(dm.keys()),
@@ -105,7 +100,7 @@ def main(args):
         num_batches = args.num_sampled_images // args.batch_size
         sampled_images = []
         for _ in range(num_batches):
-            batch_images = diffusion.sample(batch_size=128)
+            batch_images = diffusion.sample(batch_size=args.batch_size)
             batch_images = (127.5 * (batch_images + 1))
             batch_images = batch_images.type(torch.ByteTensor).clone().detach().cpu()
             sampled_images.append(batch_images)
@@ -183,8 +178,8 @@ if __name__ == '__main__':
     parser.add_argument("--local_rank", default=0, type=int)
     parser.add_argument("--seed", default=112233, type=int)
     args = parser.parse_args()
-    # epochs = [10, 20, 30, 40]
-    epochs = [50, 60, 70, 80]
+    epochs = [480]
+    # epochs = [50, 60, 70, 80]
     for epoch in epochs:
         args.epoch = epoch
         main(args)

@@ -39,8 +39,8 @@ def main():
         plt.savefig(f"{images_path }/epoch_{epoch}_checkpoints.png")
         plt.show()
 
-def show_images(epoch, num_images=2048, dataset='cifar10'):
-    images = torch.load(f'sampled_images/{dataset}/dense/epoch_{epoch}_Unet_{dataset}-250-sampling_steps-{num_images}_images-class_condn_False.pt')
+def show_images(epoch, num_images=512, dataset='cifar10',sampling_steps=1000):
+    images = torch.load(f'sampled_images/{dataset}/dense/epoch_{epoch}_Unet_{dataset}-{sampling_steps}-sampling_steps-{num_images}_images-class_condn_False.pt')
     images = images.cpu().numpy().transpose(0, 2, 3, 1)
     fig = plt.figure(figsize=(10, 8))
     counter = 1
@@ -63,7 +63,7 @@ def add_channels(data, target_channel):
         data = torch.cat((data, org_data), dim = 1)
     return data
 
-def fid_score(epoch):
+def fid_score(epoch, num_images=2048, sampling_steps=250):
     # dataset = 'mnist'
     dataset = 'cifar10'
     metadata = get_metadata(dataset)
@@ -80,7 +80,7 @@ def fid_score(epoch):
     # epoch = 489
     # pr = 'lamp_0.2_per_iteration'
     # if pr == 0:
-    data_load_path = f'sampled_images/{dataset}/dense/epoch_{epoch}_Unet_cifar10-250-sampling_steps-2048_images-class_condn_False.pt'
+    data_load_path = f'sampled_images/{dataset}/dense/epoch_{epoch}_Unet_cifar10-{sampling_steps}-sampling_steps-{num_images}_images-class_condn_False.pt'
     # elif isinstance(pr, str):
     #     data_load_path = f'sampled_images/{dataset}/{pr}/arr_0_epoch_{epoch}_images_2048.npy'
     # else:
@@ -100,6 +100,8 @@ def fid_score(epoch):
     # # generated_data = torch.cat((generated_data, generated_data, generated_data), dim=1)
     # print(generated_data.shape)
     #
+
+
     fid = FrechetInceptionDistance(feature=64)
     fid.update(train_data[:2048], real=True)
     fid.update(generated_data, real=False)
@@ -214,13 +216,14 @@ def fid_plot():
     plt.show()
 if __name__ == '__main__':
     # main()
-    # epochs = [110, 120, 130, 140]
+    epochs = [480]
+    num_images = 2048
+    sampling_steps = 1000
     # epochs = [150, 160, 170, 180, 190]
+    for epoch in epochs:
+        show_images(epoch=epoch, num_images=num_images, sampling_steps=sampling_steps)
     # for epoch in epochs:
-    #     show_images(epoch=epoch)
-
-    # for epoch in epochs:
-    #     fid_score(epoch=epoch)
+    #     fid_score(epoch=epoch, num_images=num_images, sampling_steps=sampling_steps)
     # param_sum()
     # prune_param()
-    fid_plot()
+    # fid_plot()

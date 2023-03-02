@@ -37,8 +37,6 @@ def count_fc_parameters(model):
 
 # Modules
 
-
-
 def get_weights(model):
     weights = []
     for m in model.modules():

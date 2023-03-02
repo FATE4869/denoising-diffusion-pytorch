@@ -406,7 +406,7 @@ class UNet(Module):
         return self.final(self.act(self.norm(x)))
 
 if __name__ == '__main__':
-    model = UNet()
+    model = UNet(n_channels=128)
     print(f'num of param: {count_total_parameters(model) / (10**6)}M')
     training_images = torch.rand(8, 3, 32, 32)  # images are normalized from 0 to 1
     t = torch.randint(0, 1000, (8,)).long()

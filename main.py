@@ -1,12 +1,14 @@
 import torch
 import argparse
-from denoising_diffusion_pytorch import Unet, GaussianDiffusion, train_one_epoch
+# from denoising_diffusion_pytorch import Unet, GaussianDiffusion, train_one_epoch
+from denoising_diffusion_pytorch.ddpm import Unet, GaussianDiffusion, train_one_epoch
+# from unet_temp import UNet as UNet
 from torch.utils.data import DataLoader
 from data import get_metadata, get_dataset, fix_legacy_dict
 import numpy as np
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from utils import loss_logger
+from utils import loss_logger, count_total_parameters
 import torch.nn.utils.prune as prune
 
 import os
@@ -26,22 +28,26 @@ import pruner.random_pruning as random_pruning
 import utils
 
 def main(args):
+    def warmup_lr(step):
+        return min(step, args.warmup) / args.warmup
+
     args.device = "cuda:{}".format(args.local_rank)
     torch.backends.cudnn.benchmark = True
     torch.cuda.set_device(args.device)
     torch.manual_seed(args.seed + args.local_rank)
     np.random.seed(args.seed + args.local_rank)
+    model = Unet(dim=128, dim_mults=[1, 2, 1, 1], is_attns=[False, True, False, False], channels=3,
+            self_condition=False, num_res_blocks=2, resnet_block_groups=32)
 
-    model = Unet(dim=64, dim_mults=[1, 2, 2, 2],
-                 is_attns=[False, False, False, True])
     diffusion = GaussianDiffusion(model, image_size=32, timesteps=1000, loss_type='l2', sampling_timesteps=250,
                                   beta_schedule='linear').to(args.device)
+    print(f'num of param: {count_total_parameters(model) / (10 ** 6)}M')
 
     if args.local_rank == 0:
         print(f'The total number of parameter: {utils.count_total_parameters(diffusion)}')
         print(f'The sparsity is:{utils.get_model_sparsity(diffusion)}')
     optimizer = torch.optim.Adam(diffusion.parameters(), lr=args.lr)
-
+    sched = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_lr)
     metadata = get_metadata(args.dataset)
     train_set = get_dataset(name=args.dataset, data_dir=args.data_dir, metadata=metadata)
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False, sampler=None, num_workers=2,
@@ -57,7 +63,6 @@ def main(args):
 
     if args.local_rank == 0:
         print(f"Training dataset loaded: Number of batches: {len(train_loader)}, Number of images: {len(train_set)}")
-    return 0
     current_epoch = 0
     if args.pretrained_ckpt:
         print(f"Loading pretrained model from {args.pretrained_ckpt}")
@@ -74,6 +79,7 @@ def main(args):
         current_epoch = d['epoch']
         diffusion.load_state_dict(d['model'], strict=False)
         optimizer.load_state_dict(d['opt'])
+        sched.load_state_dict(d['sched'])
         args.ema_dict = d['ema']
         print(
             f"Mismatched keys in ckpt and model: ",
@@ -109,8 +115,9 @@ def main(args):
             'epoch': current_epoch,
             'model': diffusion.module.state_dict(),
             'opt': optimizer.state_dict(),
-            'ema': args.ema_dict,
-            'logger': logger
+            'ema': args.module.ema_dict,
+            'logger': logger,
+            'sched': sched.state_dict()
         }
         torch.save(result, os.path.join(args.save_dir,
                                         f"{args.arch}_{args.dataset}-epoch_{current_epoch}-timesteps_"
@@ -121,21 +128,22 @@ def main(args):
         start = time.time()
         if sampler is not None:
             sampler.set_epoch(epoch)
-        train_one_epoch(diffusion, train_loader, optimizer, logger, None, args)
+        train_one_epoch(diffusion, train_loader, optimizer, logger, sched, args)
         current_epoch += 1
-        if (epoch + 1) % 1 == 0:
+        if (epoch + 1) % 10 == 0:
             if args.local_rank == 0:
                 result = {
                     'epoch': current_epoch,
                     'model': diffusion.module.state_dict(),
                     'opt': optimizer.state_dict(),
-                    'ema': args.ema_dict,
-                    'logger': logger
+                    'ema': args.module.ema_dict,
+                    'logger': logger,
+                    'sched': sched.state_dict()
                 }
                 torch.save(result, os.path.join(args.save_dir, f"{args.arch}_{args.dataset}-epoch_{current_epoch}-timesteps_"
                                    f"{args.diffusion_steps}-class_condn_{args.class_cond}.pt"))
         end = time.time()
-        print(f'{epoch+1} / {args.epochs}\t time: {(end - start)/60}min')
+        print(f'{epoch+1} / {args.epochs}\t time: {(end - start)/60}min, lr={optimizer.param_groups[0]["lr"]}')
 
 
 if __name__ == '__main__':
@@ -182,6 +190,9 @@ if __name__ == '__main__':
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--ema_w", type=float, default=0.9995)
+    parser.add_argument("--warmup", type=int, default=5000)
+    parser.add_argument("--grad_clip", type=float, default=1.0)
+
     # sampling/finetuning
     parser.add_argument("--pretrained-ckpt", type=str, help="Pretrained model ckpt")
     parser.add_argument("--delete-keys", nargs="+", help="Pretrained model ckpt")
